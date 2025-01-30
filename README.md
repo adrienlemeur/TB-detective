@@ -11,7 +11,7 @@ usage: TB-detective [-h] -i I [I ...] [-lin LIN] [-ab AB] [-cf CF]
 TB-detective is a script to identify the lineage, sublineage and antibiotic
 resistance of a Mycobacterium tuberculosis sample from a VCF annotated with
 snpEff. It was written in python with cyvcf2.
-
+```
 options:
   -h, --help    show this help message and exit
   -i I [I ...]  a single sample VCF aligned on H37Rv genome
@@ -22,5 +22,5 @@ options:
                 and confidence threshold
   -cf CF        threshold level of confidence (only AMR associated variants
                 with the same or higher confidence will be considered)
-
+```
 Written by Adrien Le Meur, v.1.2
