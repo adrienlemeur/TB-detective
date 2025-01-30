@@ -3,7 +3,7 @@
 from cyvcf2 import VCF
 import numpy as np
 import argparse
-import re, sys, gc
+import re, sys, gc, os
 
 parser = argparse.ArgumentParser()
 parser = argparse.ArgumentParser(
@@ -13,7 +13,8 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('-i', type=str, nargs='+', required=True, help='a single sample VCF aligned on H37Rv genome')
 parser.add_argument('-lin', type=str, nargs=1, required=False, help='a tab separated table with 1-based SNP position, the ALT nucleotide and the associated lineage')
-parser.add_argument('-ab', type=str, nargs=1, required=False, help='a tab separated table with genes, mutations (snpEff prot. or nuc. mutation annotation) and associated antibiotic resistance')
+parser.add_argument('-ab', type=str, nargs=1, required=False, help='a tab separated table with genes, mutations (snpEff prot. or nuc. mutation annotation), associated antibiotic resistance and confidence threshold')
+parser.add_argument('-cf', type=int, default=2, help='threshold level of confidence (only AMR associated variants with the same or higher confidence will be considered)')
 
 args = parser.parse_args()
 
@@ -37,15 +38,23 @@ for line in open(lineage[0]):
 
 for line in open(antibio[0]):
 	line = line.rstrip().split("\t")
-	key = "_".join( [ line[0], line[1] ] )
-	amr_dict[key] = {}
-	amr_dict[key]["gene"] = line[0]
-	amr_dict[key]["position"] = line[1]
-	amr_dict[key]["resistance"] = line[2]
-	sample_antibio_dict[line[2]] = "FALSE" #additional dict with antibiotic resistance class as key and TRUE (resistant) or FALSE (sensitive)
+	if(int(line[3]) <= args.cf):
+		key = "_".join( [ line[0], line[1] ] )
+		amr_dict[key] = {}
+		amr_dict[key]["gene"] = line[0]
+		amr_dict[key]["position"] = line[1]
+		amr_dict[key]["resistance"] = line[2].lower()
+		amr_dict[key]["confidence"] = int(line[3])
+		sample_antibio_dict[line[2].lower()] = "FALSE" #additional dict with antibiotic resistance class as key and TRUE (resistant) or FALSE (sensitive)
 
 #print the header
 print("sample", "signal_type", "lineages", "sublineages", "drug_res_type", "resistance_count", "\t".join(sample_antibio_dict.keys()), sep = "\t")
+
+if os.path.exists("all_samples_full_barcode.txt"):
+	os.remove("all_samples_full_barcode.txt")
+
+if os.path.exists("all_samples_AB.txt"):
+	os.remove("all_samples_AB.txt")
 
 #for every VCF input in -i
 for sample in input_vcf:
@@ -57,15 +66,17 @@ for sample in input_vcf:
 	sample_lineage_dict = {}
 
 	#printing all lineage SNP found
-	LBC = open("all_samples_full_barcode.txt", "w")
+	LBC = open("all_samples_full_barcode.txt", "a")
 
 	antibio_count = 0
 
 	#printing all antibiotic SNP found
-	AB = open("all_samples_AB.txt", "w")
+	AB = open("all_samples_AB.txt", "a")
 
 	for i in sample_antibio_dict:
-		sample_antibio_dict[i] = "FALSE"
+		sample_antibio_dict[i] = {}
+		sample_antibio_dict[i]["CLASS"] = 'FALSE'
+		sample_antibio_dict[i]["confidence"] = -1
 
 	for v in vcf:
 		if v.INFO.get("ANN"):
@@ -81,15 +92,20 @@ for sample in input_vcf:
 				protein_key = "_".join([ANN[3],ANN[10]])
 
 				if(nucleotide_key in amr_dict):
-					AB.write(sample+"\t"+amr_dict[nucleotide_key]["gene"]+"\t"+amr_dict[nucleotide_key]["position"]+"\t"+FILTER+"\t"+amr_dict[nucleotide_key]["resistance"]+'\n')
+					AB.write(sample+"\t"+amr_dict[nucleotide_key]["gene"]+"\t"+amr_dict[nucleotide_key]["position"]+"\t"+FILTER+"\t"+amr_dict[nucleotide_key]["resistance"]+"\t"+str(amr_dict[nucleotide_key]["confidence"])+'\n')
 					if FILTER == 'PASS':
 						antibio_count+=1
-						sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]] = "TRUE"
+						sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["CLASS"] = "TRUE"
+						if(amr_dict[nucleotide_key]["confidence"] < sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["confidence"] or sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["confidence"] == -1):
+							sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["confidence"] = amr_dict[nucleotide_key]["confidence"]
 				if(protein_key in amr_dict):
-					AB.write(sample+"\t"+amr_dict[protein_key]["gene"]+"\t"+amr_dict[protein_key]["position"]+"\t"+FILTER+"\t"+amr_dict[protein_key]["resistance"]+'\n')
+					AB.write(sample+"\t"+amr_dict[protein_key]["gene"]+"\t"+amr_dict[protein_key]["position"]+"\t"+FILTER+"\t"+amr_dict[protein_key]["resistance"]+"\t"+str(amr_dict[protein_key]["confidence"])+'\n')
 					if FILTER == 'PASS':
 						antibio_count+=1
-						sample_antibio_dict[amr_dict[protein_key]["resistance"]] = "TRUE"
+						sample_antibio_dict[amr_dict[protein_key]["resistance"]]["CLASS"] = "TRUE"
+						if(amr_dict[protein_key]["confidence"] < sample_antibio_dict[amr_dict[protein_key]["resistance"]]["confidence"] or sample_antibio_dict[amr_dict[protein_key]["resistance"]]["confidence"] == -1):
+							sample_antibio_dict[amr_dict[protein_key]["resistance"]]["confidence"] = amr_dict[protein_key]["confidence"]
+
 		if v.is_snp & (FILTER == "PASS"):
 			variant_pos = str(v.POS)
 			if(variant_pos in lineage_dict):
@@ -127,27 +143,33 @@ for sample in input_vcf:
 				signal = "COINFECTION"
 			else:
 				signal = "CONTAMINATION"
-		
+
 		main_lineages = set([ i.split('.')[0] for i in main_sublineages ])
 
 	DR_type = "SENSITIVE"
+	antibiolist = [x for x in sample_antibio_dict]
 
-	if("isoniazid" in sample_antibio_dict and "rifampicin" in sample_antibio_dict):
-		if(sample_antibio_dict["isoniazid"] == "TRUE" and sample_antibio_dict["rifampicin"] == "TRUE"):
+	if("isoniazid" in antibiolist and "rifampicin" in antibiolist):
+		if(sample_antibio_dict["isoniazid"]["CLASS"] == "TRUE" and sample_antibio_dict["rifampicin"]["CLASS"] == "TRUE"):
 			DR_type = "MDR"
-			if("fluoroquinolones" in sample_antibio_dict):
-				if(sample_antibio_dict["fluoroquinolones"] == "TRUE"):
-					if("capreomycin" in sample_antibio_dict):
-						if(sample_antibio_dict["capreomycin"] == "TRUE"):
+			if("fluoroquinolones" in antibiolist):
+				if(sample_antibio_dict["fluoroquinolones"]["CLASS"] == "TRUE"):
+					if("capreomycin" in antibiolist):
+						if(sample_antibio_dict["capreomycin"]["CLASS"] == "TRUE"):
 							DR_type = "XDR"
-					if("kanamycin" in sample_antibio_dict):
-						if(sample_antibio_dict["kanamycin"] == "TRUE"):
+					if("kanamycin" in antibiolist):
+						if(sample_antibio_dict["kanamycin"]["CLASS"] == "TRUE"):
 							DR_type = "XDR"
-					if("amikacin" in sample_antibio_dict):
-						if(sample_antibio_dict["amikacin"] == "TRUE"):
+					if("amikacin" in antibiolist):
+						if(sample_antibio_dict["amikacin"]["CLASS"] == "TRUE"):
 							DR_type = "XDR"
-		elif "rifampicin" in sample_antibio_dict:
-			if sample_antibio_dict["rifampicin"] == "TRUE":
+		elif "rifampicin" in antibiolist:
+			if sample_antibio_dict["rifampicin"]["CLASS"] == "TRUE":
 				DR_type = "RR"
 
-	print(sample, signal, ";".join(list(main_lineages)), ";".join(list(main_sublineages)), DR_type, str(antibio_count), "\t".join(sample_antibio_dict.values()), sep = "\t")
+#	test = [sample_antibio_dict[x]["CLASS"]+" ("+str(sample_antibio_dict[x]["confidence"])+") " for x in sample_antibio_dict]
+	#sys.exit()
+	#else str(sample_antibio_dict[x]["CLASS"]))
+	test = "\t".join([sample, signal, ";".join(list(main_lineages)), ";".join(list(main_sublineages)), DR_type, str(antibio_count), '\t'.join(str(sample_antibio_dict[x]["CLASS"]+" ("+str(sample_antibio_dict[x]["confidence"])+") ") for x in sample_antibio_dict)])
+	print(re.sub("FALSE \(-1\)", "FALSE", test))
+
