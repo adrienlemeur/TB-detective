@@ -1,8 +1,12 @@
-installation:
-> https://brentp.github.io/cyvcf2/
-> python3 TB-detective.py
+<h1 align="center"> TB-detective </h1>
 
-usage: TB-barcode [-h] -i I [I ...] [-lin LIN] [-ab AB] [-cf CF]
+### <a name="quickstart"></a>installation
+you need cyvf2
+> https://brentp.github.io/cyvcf2/
+that's it
+
+### usage
+usage: TB-detective [-h] -i I [I ...] [-lin LIN] [-ab AB] [-cf CF]
 
 TB-detective is a script to identify the lineage, sublineage and antibiotic
 resistance of a Mycobacterium tuberculosis sample from a VCF annotated with
