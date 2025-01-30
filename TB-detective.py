@@ -8,8 +8,8 @@ import re, sys, gc, os
 parser = argparse.ArgumentParser()
 parser = argparse.ArgumentParser(
 			prog="TB-barcode",
-			description="""TB-detective is a light-weight binary to identify the lineage, sublineage and antibiotic resistance of a Mycobacterium tuberculosis sample from a VCF annotated with snpEff. It was written in python with cyvcf2 and compiled with Nuitka3.""",
-			epilog="Written by Adrien Le Meur, v.0.3")
+			description="""TB-detective is a script to identify the lineage, sublineage and antibiotic resistance of a Mycobacterium tuberculosis sample from a VCF annotated with snpEff. It was written in python with cyvcf2.""",
+			epilog="Written by Adrien Le Meur, v.1.2")
 
 parser.add_argument('-i', type=str, nargs='+', required=True, help='a single sample VCF aligned on H37Rv genome')
 parser.add_argument('-lin', type=str, nargs=1, required=False, help='a tab separated table with 1-based SNP position, the ALT nucleotide and the associated lineage')
