@@ -9,7 +9,7 @@ that's it
 
 TB-detective is a script to identify the lineage, sublineage and antibiotic
 resistance of a Mycobacterium tuberculosis sample from a VCF annotated with
-snpEff. It was written in python with cyvcf2.
+**snpEff**. It was written in python with cyvcf2.
 ```
 usage: TB-detective [-h] -i I [I ...] [-lin LIN] [-ab AB] [-cf CF]
   -h, --help    show this help message and exit
