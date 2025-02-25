@@ -7,7 +7,7 @@ import re, sys, gc, os
 
 parser = argparse.ArgumentParser()
 parser = argparse.ArgumentParser(
-			prog="TB-barcode",
+			prog="TB-detective",
 			description="""TB-detective is a script to identify the lineage, sublineage and antibiotic resistance of a Mycobacterium tuberculosis sample from a VCF annotated with snpEff. It was written in python with cyvcf2.""",
 			epilog="Written by Adrien Le Meur, v.1.2")
 
@@ -25,6 +25,17 @@ antibio = args.ab
 def eprint(*args, **kwargs):
 	print(*args, file=sys.stderr, **kwargs)
 
+
+
+def flatten(xs):
+    result = []
+    if isinstance(xs, (list, tuple)):
+        for x in xs:
+            result.extend(flatten(x))
+    else:
+        result.append(xs)
+    return result
+
 #antibioresistance & lineage information are stored in two dictionaries for fast accession
 amr_dict = {}
 sample_antibio_dict = {}
@@ -39,7 +50,7 @@ for line in open(lineage[0]):
 for line in open(antibio[0]):
 	line = line.rstrip().split("\t")
 	if(int(line[3]) <= args.cf):
-		key = "_".join( [ line[0], line[1] ] )
+		key = "_".join( [ line[1], line[0] ] )
 		amr_dict[key] = {}
 		amr_dict[key]["gene"] = line[0]
 		amr_dict[key]["position"] = line[1]
@@ -56,6 +67,9 @@ if os.path.exists("all_samples_full_barcode.txt"):
 if os.path.exists("all_samples_AB.txt"):
 	os.remove("all_samples_AB.txt")
 
+
+#print(amr_dict.keys())
+#sys.exit()
 #for every VCF input in -i
 for sample in input_vcf:
 	vcf = VCF(sample)
@@ -87,24 +101,20 @@ for sample in input_vcf:
 				FILTER = v.FILTERS[0]
 
 			ANN = v.INFO["ANN"].split("|")
-			if(ANN[7] == "protein_coding"):
-				nucleotide_key = "_".join([ANN[3],ANN[9]])
-				protein_key = "_".join([ANN[3],ANN[10]])
 
-				if(nucleotide_key in amr_dict):
-					AB.write(sample+"\t"+amr_dict[nucleotide_key]["gene"]+"\t"+amr_dict[nucleotide_key]["position"]+"\t"+FILTER+"\t"+amr_dict[nucleotide_key]["resistance"]+"\t"+str(amr_dict[nucleotide_key]["confidence"])+'\n')
-					if FILTER == 'PASS':
-						antibio_count+=1
-						sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["CLASS"] = "TRUE"
-						if(amr_dict[nucleotide_key]["confidence"] < sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["confidence"] or sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["confidence"] == -1):
-							sample_antibio_dict[amr_dict[nucleotide_key]["resistance"]]["confidence"] = amr_dict[nucleotide_key]["confidence"]
-				if(protein_key in amr_dict):
-					AB.write(sample+"\t"+amr_dict[protein_key]["gene"]+"\t"+amr_dict[protein_key]["position"]+"\t"+FILTER+"\t"+amr_dict[protein_key]["resistance"]+"\t"+str(amr_dict[protein_key]["confidence"])+'\n')
-					if FILTER == 'PASS':
-						antibio_count+=1
-						sample_antibio_dict[amr_dict[protein_key]["resistance"]]["CLASS"] = "TRUE"
-						if(amr_dict[protein_key]["confidence"] < sample_antibio_dict[amr_dict[protein_key]["resistance"]]["confidence"] or sample_antibio_dict[amr_dict[protein_key]["resistance"]]["confidence"] == -1):
-							sample_antibio_dict[amr_dict[protein_key]["resistance"]]["confidence"] = amr_dict[protein_key]["confidence"]
+			if FILTER == 'PASS':
+				protein_key = ["_".join( [ ANN[i], ANN[i-7] ]) for i, v in enumerate(ANN) if re.match("^p\.", v)]
+				nucleotide_key = ["_".join( [ ANN[i], ANN[i-6] ]) for i, v in enumerate(ANN) if re.match("^n\.", v)]
+				upstream_key = ["_".join( [ ANN[i], ANN[i-6] ]) for i, v in enumerate(ANN) if re.match("^c\.", v)]
+
+				for one_key in protein_key + nucleotide_key + upstream_key:
+					if(one_key in amr_dict):
+						AB.write(sample+"\t"+amr_dict[one_key]["gene"]+"\t"+amr_dict[one_key]["position"]+"\t"+FILTER+"\t"+amr_dict[one_key]["resistance"]+"\t"+str(amr_dict[one_key]["confidence"])+'\n')
+						if(sample_antibio_dict[amr_dict[one_key]["resistance"]]["CLASS"] == "FALSE"):
+							antibio_count+=1
+							sample_antibio_dict[amr_dict[one_key]["resistance"]]["CLASS"] = "TRUE"
+						if(amr_dict[one_key]["confidence"] < sample_antibio_dict[amr_dict[one_key]["resistance"]]["confidence"] or sample_antibio_dict[amr_dict[one_key]["resistance"]]["confidence"] == -1):
+							sample_antibio_dict[amr_dict[one_key]["resistance"]]["confidence"] = amr_dict[one_key]["confidence"]
 
 		if v.is_snp & (FILTER == "PASS"):
 			variant_pos = str(v.POS)
@@ -167,9 +177,6 @@ for sample in input_vcf:
 			if sample_antibio_dict["rifampicin"]["CLASS"] == "TRUE":
 				DR_type = "RR"
 
-#	test = [sample_antibio_dict[x]["CLASS"]+" ("+str(sample_antibio_dict[x]["confidence"])+") " for x in sample_antibio_dict]
-	#sys.exit()
-	#else str(sample_antibio_dict[x]["CLASS"]))
-	test = "\t".join([sample, signal, ";".join(list(main_lineages)), ";".join(list(main_sublineages)), DR_type, str(antibio_count), '\t'.join(str(sample_antibio_dict[x]["CLASS"]+" ("+str(sample_antibio_dict[x]["confidence"])+") ") for x in sample_antibio_dict)])
-	print(re.sub("FALSE \(-1\)", "FALSE", test))
+	output = "\t".join([sample, signal, ";".join(list(main_lineages)), ";".join(list(main_sublineages)), DR_type, str(antibio_count), '\t'.join(str(sample_antibio_dict[x]["CLASS"]+" ("+str(sample_antibio_dict[x]["confidence"])+") ") for x in sample_antibio_dict)])
+	print(re.sub("FALSE \(-1\)", "FALSE", output))
 
